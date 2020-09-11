@@ -81,19 +81,29 @@ func shortHostname(hostname string) string {
 // logName returns a new log file name containing tag, with start time t, and
 // the name for the symlink for tag.
 func logName(tag string, t time.Time) (name, link string) {
-	name = fmt.Sprintf("%s.%s.%s.log.%s.%04d%02d%02d-%02d%02d%02d.%d",
-		program,
-		host,
-		userName,
-		tag,
-		t.Year(),
-		t.Month(),
-		t.Day(),
-		t.Hour(),
-		t.Minute(),
-		t.Second(),
-		pid)
-	return name, program + "." + tag
+	sev, ok := severityByName(tag)
+	if !ok {
+		sev = infoLog
+	}
+
+	if sev < warningLog {
+		name = fmt.Sprintf("%s.log.%04d%02d%02d%02d",
+			program,
+			t.Year(),
+			t.Month(),
+			t.Day(),
+			t.Hour())
+		link = fmt.Sprintf("%s.log", program)
+	} else {
+		name = fmt.Sprintf("%s.log.wf.%04d%02d%02d%02d",
+			program,
+			t.Year(),
+			t.Month(),
+			t.Day(),
+			t.Hour())
+		link = fmt.Sprintf("%s.log.wf", program)
+	}
+	return
 }
 
 var onceLogDirs sync.Once
@@ -111,7 +121,10 @@ func create(tag string, t time.Time) (f *os.File, filename string, err error) {
 	var lastErr error
 	for _, dir := range logDirs {
 		fname := filepath.Join(dir, name)
-		f, err := os.Create(fname)
+		f, err := os.OpenFile(fname, os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			f, err = os.Create(fname)
+		}
 		if err == nil {
 			symlink := filepath.Join(dir, link)
 			os.Remove(symlink)        // ignore err

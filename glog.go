@@ -408,6 +408,7 @@ func init() {
 
 	logging.setVState(0, nil, false)
 	go logging.flushDaemon()
+	go logging.rotateByHour()
 }
 
 // Flush flushes all pending log I/O.
@@ -812,11 +813,6 @@ func (sb *syncBuffer) Sync() error {
 }
 
 func (sb *syncBuffer) Write(p []byte) (n int, err error) {
-	if sb.nbytes+uint64(len(p)) >= MaxSize {
-		if err := sb.rotateFile(time.Now()); err != nil {
-			sb.logger.exit(err)
-		}
-	}
 	n, err = sb.Writer.Write(p)
 	sb.nbytes += uint64(n)
 	if err != nil {
@@ -862,7 +858,7 @@ func (l *loggingT) createFiles(sev severity) error {
 	now := time.Now()
 	// Files are created in decreasing severity order, so as soon as we find one
 	// has already been created, we can stop.
-	for s := sev; s >= infoLog && l.file[s] == nil; s-- {
+	for s := sev; s >= infoLog; s-- {
 		sb := &syncBuffer{
 			logger: l,
 			sev:    s,
@@ -875,12 +871,27 @@ func (l *loggingT) createFiles(sev severity) error {
 	return nil
 }
 
-const flushInterval = 30 * time.Second
+const flushInterval = 1 * time.Second
 
 // flushDaemon periodically flushes the log file buffers.
 func (l *loggingT) flushDaemon() {
 	for _ = range time.NewTicker(flushInterval).C {
 		l.lockAndFlushAll()
+	}
+}
+
+// rotateByHour periodically rotate by hour.
+func (l *loggingT) rotateByHour() {
+	last := time.Now().Hour()
+	for _ = range time.NewTicker(flushInterval).C {
+		now := time.Now().Hour()
+		if now == last {
+			continue
+		}
+		l.mu.Lock()
+		l.createFiles(fatalLog)
+		last = now
+		l.mu.Unlock()
 	}
 }
 
